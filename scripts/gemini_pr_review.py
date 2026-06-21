@@ -184,5 +184,5 @@ if truncated:
 
 post_pr_comment(review)
 
-if name == "main":
-	main()
+if __name__ == "__main__":
+    main()
