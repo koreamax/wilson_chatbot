@@ -46,3 +46,9 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local test files
+/test_chroma.py
+
+# Root main.py is not used because FastAPI entrypoint is app/main.py
+/main.py
