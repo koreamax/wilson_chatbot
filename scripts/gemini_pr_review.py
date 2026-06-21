@@ -177,12 +177,13 @@ PR diff:
 {diff}
 """
 
-review = call_gemini(prompt)
+    review = call_gemini(prompt)
 
-if truncated:
-    review += "\n\n> ⚠️ diff가 너무 길어서 일부만 분석했습니다."
+    if truncated:
+        review += "\n\n> ⚠️ diff가 너무 길어서 일부만 분석했습니다."
 
-post_pr_comment(review)
+    post_pr_comment(review)
+
 
 if __name__ == "__main__":
     main()
