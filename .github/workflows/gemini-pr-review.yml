@@ -1,0 +1,50 @@
+name: Gemini PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  gemini-review:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create PR diff
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          git diff "origin/${{ github.base_ref }}...HEAD" -- . \
+            ":(exclude).venv/**" \
+            ":(exclude)venv/**" \
+            ":(exclude)__pycache__/**" \
+            ":(exclude).git/**" \
+            ":(exclude)*.lock" \
+            ":(exclude)chroma/**" \
+            ":(exclude)chroma_db/**" \
+            ":(exclude)uploads/**" \
+            ":(exclude)data/**" \
+            ":(exclude)models/**" \
+            > pr.diff
+
+      - name: Run Gemini PR review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_DIFF_PATH: pr.diff
+        run: |
+          python scripts/gemini_pr_review.py
