@@ -52,3 +52,7 @@ Thumbs.db
 
 # Root main.py is not used because FastAPI entrypoint is app/main.py
 /main.py
+
+.env
+*.env
+
