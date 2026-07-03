@@ -6,57 +6,47 @@ services:
       - "0.0.0.0:8000:8000"
     environment:
       IS_PERSISTENT: "TRUE"
-      PERSIST_DIRECTORY: /chroma/chroma
+      PERSIST_DIRECTORY: /data
       ANONYMIZED_TELEMETRY: "FALSE"
     volumes:
-      - chroma-data:/chroma/chroma
+      - chroma-data:/data
     healthcheck:
       test:
-        - CMD
-        - python
-        - -c
-        - "import chromadb; chromadb.HttpClient(host='localhost', port=8000).heartbeat()"
+        - CMD-SHELL
+        - "bash -c '</dev/tcp/localhost/8000'"
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
 
   chroma-init:
-    image: chromadb/chroma:latest
+    image: curlimages/curl:latest
     depends_on:
       chroma-db:
         condition: service_healthy
     environment:
       CHROMA_HOST: chroma-db
       CHROMA_PORT: "8000"
+    entrypoint:
+      - /bin/sh
     command:
-      - python
       - -c
       - |
-        import os
-        import chromadb
+        set -eu
 
-        client = chromadb.HttpClient(
-            host=os.environ["CHROMA_HOST"],
-            port=int(os.environ["CHROMA_PORT"]),
-        )
+        base_url="http://$${CHROMA_HOST}:$${CHROMA_PORT}/api/v2/tenants/default_tenant/databases/default_database/collections"
 
-        collections = {
-            "static_knowledge": "정적 지식",
-            "elder": "노인 개인 컨텍스트",
-            "guardian": "보호자 컨텍스트",
-        }
+        for payload in \
+          '{"name":"static_knowledge","metadata":{"display_name":"정적 지식","owner":"wilson-ai"},"get_or_create":true}' \
+          '{"name":"elder","metadata":{"display_name":"노인 개인 컨텍스트","owner":"wilson-ai"},"get_or_create":true}' \
+          '{"name":"guardian","metadata":{"display_name":"보호자 컨텍스트","owner":"wilson-ai"},"get_or_create":true}'
+        do
+          curl -fsS -X POST "$${base_url}" \
+            -H 'Content-Type: application/json' \
+            -d "$${payload}" > /dev/null
+        done
 
-        for name, display_name in collections.items():
-            client.get_or_create_collection(
-                name=name,
-                metadata={
-                    "display_name": display_name,
-                    "owner": "wilson-ai",
-                },
-            )
-
-        print("ChromaDB collections are ready:", ", ".join(collections))
+        echo "ChromaDB collections are ready: static_knowledge, elder, guardian"
     restart: "no"
 
   chroma-tunnel:
