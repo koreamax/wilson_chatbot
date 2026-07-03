@@ -1,0 +1,78 @@
+services:
+  chroma-db:
+    image: chromadb/chroma:latest
+    container_name: wilson-chroma-db
+    ports:
+      - "0.0.0.0:8000:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma-data:/chroma/chroma
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import chromadb; chromadb.HttpClient(host='localhost', port=8000).heartbeat()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  chroma-init:
+    image: chromadb/chroma:latest
+    depends_on:
+      chroma-db:
+        condition: service_healthy
+    environment:
+      CHROMA_HOST: chroma-db
+      CHROMA_PORT: "8000"
+    command:
+      - python
+      - -c
+      - |
+        import os
+        import chromadb
+
+        client = chromadb.HttpClient(
+            host=os.environ["CHROMA_HOST"],
+            port=int(os.environ["CHROMA_PORT"]),
+        )
+
+        collections = {
+            "static_knowledge": "정적 지식",
+            "elder": "노인 개인 컨텍스트",
+            "guardian": "보호자 컨텍스트",
+        }
+
+        for name, display_name in collections.items():
+            client.get_or_create_collection(
+                name=name,
+                metadata={
+                    "display_name": display_name,
+                    "owner": "wilson-ai",
+                },
+            )
+
+        print("ChromaDB collections are ready:", ", ".join(collections))
+    restart: "no"
+
+  chroma-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: wilson-chroma-tunnel
+    profiles:
+      - tunnel
+    depends_on:
+      chroma-db:
+        condition: service_healthy
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://chroma-db:8000
+    restart: unless-stopped
+
+volumes:
+  chroma-data:

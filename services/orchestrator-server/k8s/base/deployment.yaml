@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator-server
+    spec:
+      containers:
+        - name: orchestrator-server
+          image: wilson/orchestrator-server:dev
+          ports:
+            - name: grpc
+              containerPort: 50051
+          env:
+            - name: RAG_SERVER_TARGET
+              value: rag-server:50052
+            - name: LLM_SERVER_TARGET
+              value: ollama-gpt-server:50053
+            - name: LANGUAGE_CODE
+              value: ja-JP

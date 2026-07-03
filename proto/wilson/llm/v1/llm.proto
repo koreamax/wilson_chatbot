@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package wilson.llm.v1;
+
+message GenerateRequest {
+  string trace_id = 1;
+  string turn_id = 2;
+  string system_prompt = 3;
+  string user_text = 4;
+  repeated string context_chunks = 5;
+  string language_code = 6;
+}
+
+message TokenChunk {
+  string text = 1;
+  bool done = 2;
+}
+
+service LlmService {
+  rpc Generate(GenerateRequest) returns (stream TokenChunk);
+}
