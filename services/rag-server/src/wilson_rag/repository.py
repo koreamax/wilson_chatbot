@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from wilson_rag.chroma_collections import (
@@ -11,6 +12,17 @@ from wilson_rag.chroma_collections import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class SearchHit:
+    """단일 컬렉션 검색 결과 1건(내부 표현)."""
+
+    collection: ChromaCollection
+    document_id: str
+    text: str
+    # dense 단독 잠정 점수(= 1 - cosine distance). 4단계 RRF 융합 시 이 값을 대체한다.
+    score: float
+
+
 class ChromaClientProtocol(Protocol):
     def get_or_create_collection(
         self,
@@ -19,6 +31,7 @@ class ChromaClientProtocol(Protocol):
         configuration: dict | None = None,
         embedding_function: Any = None,
     ): ...
+    def get_collection(self, name: str, embedding_function: Any = None): ...
     def list_collections(self): ...
 
 
@@ -77,6 +90,47 @@ class ChromaRepository:
                 f"(기대: '{HNSW_SPACE}'). 해당 컬렉션을 삭제 후 재생성하거나 "
                 f"ChromaDB 볼륨을 리셋하십시오."
             )
+
+    def dense_search(
+        self,
+        collection: ChromaCollection,
+        query_embedding: list[float],
+        top_k: int,
+        where: dict | None = None,
+    ) -> list[SearchHit]:
+        """단일 컬렉션에 대해 dense(cosine) 검색을 수행한다.
+
+        private 컬렉션(elder/guardian)은 반드시 `where` 스코프 필터와 함께 호출한다.
+        스코프 없는 private 검색은 개인정보 유출이므로 이 판단은 호출측(servicer)이 진다.
+        임베딩은 명시 전달하므로 컬렉션 EF는 사용하지 않는다(embedding_function=None).
+        """
+        chroma_collection = self.client.get_collection(
+            collection.value, embedding_function=None
+        )
+        result = chroma_collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=where,
+            include=["documents", "distances"],
+        )
+        # chromadb는 배치 쿼리 형태로 반환한다 — 단일 쿼리이므로 [0]을 꺼낸다.
+        ids = result["ids"][0]
+        documents = result["documents"][0]
+        distances = result["distances"][0]
+
+        hits: list[SearchHit] = []
+        for document_id, text, distance in zip(ids, documents, distances):
+            hits.append(
+                SearchHit(
+                    collection=collection,
+                    document_id=document_id,
+                    text=text or "",
+                    # cosine space: distance ∈ [0,2], 유사도 = 1 - distance.
+                    # dense 단독 잠정 점수다. 4단계 RRF 융합 시 이 값을 대체한다.
+                    score=1.0 - distance,
+                )
+            )
+        return hits
 
     def collection_names(self) -> list[str]:
         names: list[str] = []
