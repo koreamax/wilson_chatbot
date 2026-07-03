@@ -2,20 +2,33 @@ import json
 import os
 import pathlib
 import urllib.error
+import urllib.parse
 import urllib.request
+
+
+def require_first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+
+    joined_names = ", ".join(names)
+    raise RuntimeError(
+        f"{joined_names} 중 사용 가능한 값이 없습니다. "
+        "GitHub 저장소의 Settings > Secrets and variables > Actions에 "
+        "GEMINI_API_KEY 또는 GOOGLE_API_KEY secret을 등록했는지 확인하세요. "
+        "fork PR이면 pull_request 이벤트에서는 repository secret을 받을 수 없습니다."
+    )
 
 
 def require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
-        raise RuntimeError(
-            f"{name} is empty. GitHub Actions secret 또는 환경변수가 전달되지 않았습니다. "
-            "fork PR이면 pull_request 이벤트에서는 repository secret을 받을 수 없습니다."
-        )
+        raise RuntimeError(f"{name} 환경변수가 비어 있습니다.")
     return value
 
 
-GEMINI_API_KEY = require_env("GEMINI_API_KEY")
+GEMINI_API_KEY = require_first_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
 GITHUB_TOKEN = require_env("GITHUB_TOKEN")
 GITHUB_REPOSITORY = require_env("GITHUB_REPOSITORY")
 PR_NUMBER = require_env("PR_NUMBER")
@@ -23,6 +36,38 @@ PR_NUMBER = require_env("PR_NUMBER")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 PR_DIFF_PATH = os.getenv("PR_DIFF_PATH", "pr.diff")
 MAX_DIFF_CHARS = int(os.getenv("MAX_DIFF_CHARS", "30000"))
+
+
+def format_http_error(error: urllib.error.HTTPError, body: str) -> RuntimeError:
+    detail = body
+    try:
+        parsed = json.loads(body)
+        detail = json.dumps(parsed, ensure_ascii=False, indent=2)
+        message = parsed.get("error", {}).get("message", "")
+    except json.JSONDecodeError:
+        message = body
+
+    hint = ""
+    if error.code == 403 and "unregistered callers" in message:
+        hint = (
+            "\n\n해결 방법:\n"
+            "1. GitHub Actions secret이 실제 실행 저장소에 등록됐는지 확인하세요.\n"
+            "   - PR 체크가 koreamax/wilson_chatbot에서 돌면, 그 저장소 secret에 넣어야 합니다.\n"
+            "   - fork 저장소 secret에만 넣으면 upstream PR 체크에서는 읽을 수 없습니다.\n"
+            "2. Google AI Studio에서 새 Auth API key를 생성해서 GEMINI_API_KEY로 다시 등록하세요.\n"
+            "   - 2026-06-19 이후 Gemini API는 제한 없는 Standard API key 요청을 거부할 수 있습니다.\n"
+            "   - 기존 Standard key를 계속 쓰려면 Gemini API 전용으로 제한하거나 Auth key로 교체해야 합니다.\n"
+            "3. secret 이름은 GEMINI_API_KEY 또는 GOOGLE_API_KEY여야 합니다.\n"
+        )
+    elif error.code == 403:
+        hint = (
+            "\n\n확인할 것:\n"
+            "- Gemini API key가 유효한지 확인하세요.\n"
+            "- 해당 key가 Generative Language API/Gemini API 사용 권한을 가지고 있는지 확인하세요.\n"
+            "- API key에 IP 또는 referrer 제한을 걸었다면 GitHub Actions runner에서 차단될 수 있습니다.\n"
+        )
+
+    return RuntimeError(f"HTTP {error.code}: {detail}{hint}")
 
 
 def post_json(url: str, payload: dict, headers: dict) -> dict:
@@ -43,18 +88,20 @@ def post_json(url: str, payload: dict, headers: dict) -> dict:
             return json.loads(body)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {e.code}: {body}") from e
+        raise format_http_error(e, body) from e
 
 
 def call_gemini(prompt: str) -> str:
+    # Google generateContent REST 예시는 API key를 query parameter로 전달한다.
+    # https://ai.google.dev/api/generate-content
+    encoded_key = urllib.parse.quote(GEMINI_API_KEY, safe="")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{GEMINI_MODEL}:generateContent"
+        f"models/{GEMINI_MODEL}:generateContent?key={encoded_key}"
     )
 
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
     }
 
     payload = {
@@ -184,3 +231,16 @@ def main() -> None:
 PR diff:
 ```diff
 {diff}
+```
+"""
+
+    review = call_gemini(prompt)
+
+    if truncated:
+        review += "\n\n> ⚠️ diff가 너무 길어서 일부만 분석했습니다."
+
+    post_pr_comment(review)
+
+
+if __name__ == "__main__":
+    main()
