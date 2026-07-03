@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package wilson.rag.v1;
+
+enum ChromaCollection {
+  CHROMA_COLLECTION_UNSPECIFIED = 0;
+  STATIC_KNOWLEDGE = 1;
+  ELDER = 2;
+  GUARDIAN = 3;
+}
+
+message BuildContextRequest {
+  string trace_id = 1;
+  string turn_id = 2;
+  string target_user_id = 3;
+  string session_id = 4;
+  string query_text = 5;
+  repeated ChromaCollection collections = 6;
+}
+
+message ContextChunk {
+  string collection = 1;
+  string document_id = 2;
+  string text = 3;
+  float score = 4;
+}
+
+message BuildContextResponse {
+  repeated ContextChunk chunks = 1;
+  bool fallback_used = 2;
+}
+
+service RagService {
+  rpc BuildContext(BuildContextRequest) returns (BuildContextResponse);
+}

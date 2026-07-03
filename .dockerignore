@@ -1,0 +1,14 @@
+.git
+.github
+__pycache__
+*.py[cod]
+.venv
+venv
+env
+.env
+.env.*
+chroma_db
+*.sqlite3
+*.db
+logs
+tmp

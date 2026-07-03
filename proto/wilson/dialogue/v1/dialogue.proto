@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package wilson.dialogue.v1;
+
+message AudioRequest {
+  bytes audio_payload = 1;
+  string trace_id = 2;
+  string target_user_id = 3;
+  string session_id = 4;
+  string turn_id = 5;
+  string audio_format = 6;
+  string language_code = 7;
+}
+
+message StreamResponse {
+  oneof payload {
+    MetadataFrame metadata = 1;
+    AudioChunk audio_chunk = 2;
+    CompletionFrame completion = 3;
+    ErrorFrame error = 4;
+  }
+}
+
+message MetadataFrame {
+  string stt_text = 1;
+}
+
+message AudioChunk {
+  bytes data = 1;
+  uint32 sequence = 2;
+}
+
+message CompletionFrame {
+  string full_llm_response_text = 1;
+}
+
+message ErrorFrame {
+  ErrorStage error_stage = 1;
+  bool recoverable = 2;
+  string full_llm_response_text = 3;
+}
+
+enum ErrorStage {
+  ERROR_STAGE_UNSPECIFIED = 0;
+  ERROR_STAGE_STT = 1;
+  ERROR_STAGE_LLM = 2;
+  ERROR_STAGE_TTS = 3;
+}
+
+service DialogueService {
+  rpc Converse(AudioRequest) returns (stream StreamResponse);
+}

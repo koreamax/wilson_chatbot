@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chroma-db-init-collections
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chroma-db-init-collections
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-collections
+          image: chromadb/chroma:latest
+          command:
+            - python
+            - -c
+          args:
+            - |
+              import time
+              import chromadb
+
+              client = chromadb.HttpClient(host="chroma-db", port=8000)
+              deadline = time.monotonic() + 120
+              last_error = None
+
+              while time.monotonic() < deadline:
+                  try:
+                      client.heartbeat()
+                      break
+                  except Exception as exc:
+                      last_error = exc
+                      time.sleep(2)
+              else:
+                  raise RuntimeError("ChromaDB is not ready") from last_error
+
+              collections = {
+                  "static_knowledge": "정적 지식",
+                  "elder": "노인 개인 컨텍스트",
+                  "guardian": "보호자 컨텍스트",
+              }
+
+              for name, display_name in collections.items():
+                  client.get_or_create_collection(
+                      name=name,
+                      metadata={
+                          "display_name": display_name,
+                          "owner": "wilson-ai",
+                      },
+                  )
+
+              print("ChromaDB collections are ready:", ", ".join(collections))
