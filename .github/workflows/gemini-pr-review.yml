@@ -1,7 +1,7 @@
 name: Gemini PR Review
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
 
@@ -16,26 +16,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR code
+      - name: Checkout base code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
 
       - name: Create PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
-
-          git diff "origin/${{ github.base_ref }}...HEAD" -- . \
-            ":(exclude).venv/**" \
-            ":(exclude)venv/**" \
-            ":(exclude)__pycache__/**" \
-            ":(exclude).git/**" \
-            ":(exclude)*.lock" \
-            ":(exclude)chroma/**" \
-            ":(exclude)chroma_db/**" \
-            ":(exclude)uploads/**" \
-            ":(exclude)data/**" \
-            ":(exclude)models/**" \
+          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --patch \
             > pr.diff
 
       - name: Run Gemini PR review
