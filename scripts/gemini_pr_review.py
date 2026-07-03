@@ -34,14 +34,15 @@ def post_json(url: str, payload: dict, headers: dict) -> dict:
 
 
 def call_gemini(prompt: str) -> str:
+    # 1. URL 끝에 ?key={GEMINI_API_KEY}를 붙여줍니다.
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{GEMINI_MODEL}:generateContent"
+        f"models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     )
 
+    # 2. headers에서 "x-goog-api-key" 항목을 제거합니다.
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
     }
 
     payload = {
