@@ -1,0 +1,5 @@
+# 빌드/개발 전용 의존성 (런타임 이미지에는 포함하지 않는다).
+# proto 스텁 생성용. 런타임은 grpcio + protobuf만 있으면 되고 생성물은 체크인한다.
+# 버전은 런타임 grpcio와 맞춘다 — 스텁이 grpcio>=<이 버전>을 요구하기 때문(gen_proto.py 참조).
+-r requirements.txt
+grpcio-tools==1.81.1

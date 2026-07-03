@@ -14,3 +14,8 @@ COLLECTION_DESCRIPTIONS: dict[ChromaCollection, str] = {
 }
 
 REQUIRED_COLLECTIONS: tuple[ChromaCollection, ...] = tuple(ChromaCollection)
+
+# rag.md 절대 규칙: 컬렉션은 반드시 cosine 거리 지표로 생성한다.
+# ruri-v3 임베딩이 코사인 유사도로 훈련됐고, ChromaDB 기본값(L2)을 쓰면 검색 품질이 훼손된다.
+# 설정 노브가 아니라 불변 규칙이므로 상수로 둔다.
+HNSW_SPACE: str = "cosine"
