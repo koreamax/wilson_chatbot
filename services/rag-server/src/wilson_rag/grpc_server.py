@@ -60,7 +60,17 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
             len(request.collections),
         )
 
-        query_embedding = self._embedding.embed_query(request.query_text)
+        try:
+            query_embedding = self._embedding.embed_query(request.query_text)
+        except Exception:
+            # rag.md 폴백: 임베딩 실패도 검색 실패다. RPC를 끊지 말고 폴백으로 대화를 유지한다.
+            # 단, 모델 로드 실패 등 심각한 문제일 수 있으므로 ERROR 로그를 크게 남긴다.
+            logger.exception(
+                "임베딩 실패 — 폴백으로 응답합니다. trace_id=%s turn_id=%s",
+                request.trace_id,
+                request.turn_id,
+            )
+            return rag_pb2.BuildContextResponse(chunks=[], fallback_used=True)
 
         hits: list[SearchHit] = []
         for collection in self._resolve_collections(request.collections):

@@ -19,6 +19,7 @@ class SearchHit:
     collection: ChromaCollection
     document_id: str
     text: str
+    # dense 단독 잠정 점수(= 1 - cosine distance). 4단계 RRF 융합 시 이 값을 대체한다.
     score: float
 
 
