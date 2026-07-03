@@ -5,10 +5,20 @@ import urllib.error
 import urllib.request
 
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-GITHUB_REPOSITORY = os.environ["GITHUB_REPOSITORY"]
-PR_NUMBER = os.environ["PR_NUMBER"]
+def require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is empty. GitHub Actions secret 또는 환경변수가 전달되지 않았습니다. "
+            "fork PR이면 pull_request 이벤트에서는 repository secret을 받을 수 없습니다."
+        )
+    return value
+
+
+GEMINI_API_KEY = require_env("GEMINI_API_KEY")
+GITHUB_TOKEN = require_env("GITHUB_TOKEN")
+GITHUB_REPOSITORY = require_env("GITHUB_REPOSITORY")
+PR_NUMBER = require_env("PR_NUMBER")
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 PR_DIFF_PATH = os.getenv("PR_DIFF_PATH", "pr.diff")
@@ -27,22 +37,24 @@ def post_json(url: str, payload: dict, headers: dict) -> dict:
 
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
-            return json.loads(response.read().decode("utf-8"))
+            body = response.read().decode("utf-8")
+            if not body:
+                return {}
+            return json.loads(body)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {e.code}: {body}") from e
 
 
 def call_gemini(prompt: str) -> str:
-    # 1. URL 끝에 ?key={GEMINI_API_KEY}를 붙여줍니다.
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/"
-        f"models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        f"models/{GEMINI_MODEL}:generateContent"
     )
 
-    # 2. headers에서 "x-goog-api-key" 항목을 제거합니다.
     headers = {
         "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
     }
 
     payload = {
@@ -51,7 +63,7 @@ def call_gemini(prompt: str) -> str:
                 "role": "user",
                 "parts": [
                     {
-                        "text": prompt
+                        "text": prompt,
                     }
                 ],
             }
@@ -72,11 +84,7 @@ def call_gemini(prompt: str) -> str:
             f"```json\n{json.dumps(response, ensure_ascii=False, indent=2)}\n```"
         )
 
-    parts = (
-        candidates[0]
-        .get("content", {})
-        .get("parts", [])
-    )
+    parts = candidates[0].get("content", {}).get("parts", [])
 
     texts = []
     for part in parts:
@@ -176,15 +184,3 @@ def main() -> None:
 PR diff:
 ```diff
 {diff}
-"""
-
-    review = call_gemini(prompt)
-
-    if truncated:
-        review += "\n\n> ⚠️ diff가 너무 길어서 일부만 분석했습니다."
-
-    post_pr_comment(review)
-
-
-if __name__ == "__main__":
-    main()
