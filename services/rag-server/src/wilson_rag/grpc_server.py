@@ -3,12 +3,14 @@ import logging
 
 import grpc
 
+from wilson_rag.bm25_index import Bm25Index
 from wilson_rag.chroma_collections import ChromaCollection
 from wilson_rag.config.settings import Settings, get_settings
 from wilson_rag.context_builder import ContextBuilder
 from wilson_rag.embedding_client import EmbeddingClient
 from wilson_rag.generated import rag_pb2, rag_pb2_grpc
 from wilson_rag.infrastructure.chroma_client import create_chroma_client, wait_for_chroma
+from wilson_rag.mecab_tokenizer import MeCabTokenizer
 from wilson_rag.repository import ChromaRepository, SearchHit
 
 logger = logging.getLogger(__name__)
@@ -83,8 +85,12 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
                 continue
             try:
                 hits.extend(
-                    self._repository.dense_search(
-                        collection, query_embedding, self._top_k, where=where
+                    self._repository.hybrid_search(
+                        collection,
+                        request.query_text,
+                        query_embedding,
+                        self._top_k,
+                        where=where,
                     )
                 )
             except Exception:
@@ -131,6 +137,21 @@ def _to_proto_chunk(hit: SearchHit) -> rag_pb2.ContextChunk:
     )
 
 
+def _build_sparse_indexes(repository: ChromaRepository) -> None:
+    """static_knowledge의 BM25 sparse 색인을 구축해 repository에 등록한다.
+
+    private(elder/guardian)은 노인별/보호자별 스코프라 전역 BM25 대상이 아니며, 스코프
+    필터도 미확정이라 sparse 대상에서 제외한다(dense-skip 상태 유지). 공용 지식만 sparse.
+    """
+    tokenizer = MeCabTokenizer()
+    collection = ChromaCollection.STATIC_KNOWLEDGE
+    documents = repository.load_documents(collection)
+    index = Bm25Index(tokenizer)
+    index.build(documents)
+    repository.set_sparse_index(collection, index)
+    logger.info("BM25 sparse 색인 구축 완료: %s (%d docs)", collection.value, len(documents))
+
+
 def _build_servicer(settings: Settings, repository: ChromaRepository) -> RagServicer:
     return RagServicer(
         embedding_client=EmbeddingClient(settings.embedding_model_name),
@@ -148,9 +169,12 @@ def serve() -> None:
 
     chroma_client = create_chroma_client(settings)
     wait_for_chroma(chroma_client, settings.chroma_connect_timeout_seconds)
-    repository = ChromaRepository(chroma_client)
+    repository = ChromaRepository(chroma_client, rrf_k=settings.rrf_k)
     repository.ensure_required_collections()
     logger.info("ChromaDB connected. Collections: %s", repository.collection_names())
+
+    # BM25 sparse 색인을 기동 시 1회 구축·상주(static_knowledge만). rag.md: dense와 분리 운용.
+    _build_sparse_indexes(repository)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     rag_pb2_grpc.add_RagServiceServicer_to_server(

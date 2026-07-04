@@ -8,6 +8,7 @@ from wilson_rag.chroma_collections import (
     HNSW_SPACE,
     REQUIRED_COLLECTIONS,
 )
+from wilson_rag.rrf import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class SearchHit:
     collection: ChromaCollection
     document_id: str
     text: str
-    # dense 단독 잠정 점수(= 1 - cosine distance). 4단계 RRF 융합 시 이 값을 대체한다.
+    # 융합 점수(하이브리드는 RRF, sparse 색인이 없으면 dense 단독 = 1 - cosine distance).
     score: float
 
 
@@ -35,9 +36,32 @@ class ChromaClientProtocol(Protocol):
     def list_collections(self): ...
 
 
+class SparseIndexProtocol(Protocol):
+    """BM25 색인 덕타이핑. 실물(Bm25Index)은 fugashi를 끌어오므로 여기서 import하지 않는다
+    (healthcheck·init_collections가 repository만 import해도 fugashi가 필요해지지 않게)."""
+
+    def search(self, query_text: str, top_k: int) -> list[tuple[str, str]]: ...
+    def is_empty(self) -> bool: ...
+
+
 class ChromaRepository:
-    def __init__(self, client: ChromaClientProtocol) -> None:
+    def __init__(self, client: ChromaClientProtocol, rrf_k: int = 60) -> None:
         self.client = client
+        self._rrf_k = rrf_k
+        self._sparse_indexes: dict[ChromaCollection, SparseIndexProtocol] = {}
+
+    def set_sparse_index(
+        self, collection: ChromaCollection, index: SparseIndexProtocol
+    ) -> None:
+        self._sparse_indexes[collection] = index
+
+    def load_documents(self, collection: ChromaCollection) -> list[tuple[str, str]]:
+        """컬렉션의 모든 (document_id, text)를 읽어온다(BM25 색인 구축용)."""
+        chroma_collection = self.client.get_collection(
+            collection.value, embedding_function=None
+        )
+        got = chroma_collection.get(include=["documents"])
+        return [(doc_id, text or "") for doc_id, text in zip(got["ids"], got["documents"])]
 
     def ensure_required_collections(self) -> None:
         for collection in REQUIRED_COLLECTIONS:
@@ -131,6 +155,47 @@ class ChromaRepository:
                 )
             )
         return hits
+
+    def hybrid_search(
+        self,
+        collection: ChromaCollection,
+        query_text: str,
+        query_embedding: list[float],
+        top_k: int,
+        where: dict | None = None,
+    ) -> list[SearchHit]:
+        """dense + BM25(sparse)를 RRF로 융합해 반환한다.
+
+        sparse 색인이 없는 컬렉션(예: 색인 미구축)은 dense 단독으로 정상 degrade한다.
+        dense와 sparse는 물리적으로 분리 운용하며, 결합은 순위 기반 RRF로만 한다(rag.md).
+        """
+        dense_hits = self.dense_search(collection, query_embedding, top_k, where=where)
+
+        sparse_index = self._sparse_indexes.get(collection)
+        if sparse_index is None or sparse_index.is_empty():
+            return dense_hits
+
+        sparse_results = sparse_index.search(query_text, top_k)
+
+        # 두 결과의 doc_id→text 매핑(어느 쪽에서 나온 문서든 텍스트를 복원할 수 있게).
+        text_by_id: dict[str, str] = {hit.document_id: hit.text for hit in dense_hits}
+        for doc_id, text in sparse_results:
+            text_by_id.setdefault(doc_id, text)
+
+        dense_ranking = [hit.document_id for hit in dense_hits]
+        sparse_ranking = [doc_id for doc_id, _ in sparse_results]
+        fused = reciprocal_rank_fusion([dense_ranking, sparse_ranking], self._rrf_k)
+
+        ordered = sorted(fused.items(), key=lambda item: item[1], reverse=True)[:top_k]
+        return [
+            SearchHit(
+                collection=collection,
+                document_id=doc_id,
+                text=text_by_id.get(doc_id, ""),
+                score=score,
+            )
+            for doc_id, score in ordered
+        ]
 
     def collection_names(self) -> list[str]:
         names: list[str] = []
