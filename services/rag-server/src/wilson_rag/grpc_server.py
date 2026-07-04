@@ -1,4 +1,5 @@
 from concurrent import futures
+from datetime import datetime, timezone
 import logging
 
 import grpc
@@ -11,7 +12,7 @@ from wilson_rag.embedding_client import EmbeddingClient
 from wilson_rag.generated import rag_pb2, rag_pb2_grpc
 from wilson_rag.infrastructure.chroma_client import create_chroma_client, wait_for_chroma
 from wilson_rag.mecab_tokenizer import MeCabTokenizer
-from wilson_rag.repository import ChromaRepository, SearchHit
+from wilson_rag.repository import ChromaRepository, SearchHit, SparseIndexProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +23,16 @@ _PROTO_TO_COLLECTION: dict[int, ChromaCollection] = {
     rag_pb2.GUARDIAN: ChromaCollection.GUARDIAN,
 }
 
-_PUBLIC_COLLECTIONS = frozenset({ChromaCollection.STATIC_KNOWLEDGE})
-
 
 class RagServicer(rag_pb2_grpc.RagServiceServicer):
-    """RagService.BuildContext 구현 (3단계: dense 검색).
+    """RagService 구현 — BuildContext(read, 하이브리드)와 StoreConversation(write, elder).
 
-    query_text를 ruri-v3로 임베딩해 요청된 컬렉션을 dense 검색하고, 결과를 조립해
-    반환한다. static_knowledge(public)만 스코프 없이 검색하며, elder/guardian(private)은
-    스코프 필터가 설정되기 전까지 검색하지 않는다(개인정보 유출 방지). BM25/RRF는 4단계.
+    read: query_text를 ruri-v3로 임베딩해 요청 컬렉션을 하이브리드(dense+BM25 RRF) 검색.
+      static_knowledge는 기동 시 만든 공유 BM25 색인을, elder는 그 노인 문서로만 요청별로
+      지은 스코프 BM25 색인을 쓴다(스코프된 문서로만 지어 유출 불가). guardian은 ERD 미확정이라
+      검색하지 않는다.
+    write: 세션 종료 후 오케스트레이터가 호출. 대화 턴(STT텍스트+LLM응답)을 문서 임베딩해
+      elder 컬렉션에 스코프 메타데이터와 함께 저장.
     """
 
     def __init__(
@@ -40,12 +42,18 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
         context_builder: ContextBuilder,
         top_k: int,
         scope_metadata_field: str,
+        tokenizer: MeCabTokenizer,
+        static_sparse_indexes: dict[ChromaCollection, SparseIndexProtocol],
     ) -> None:
         self._embedding = embedding_client
         self._repository = repository
         self._context_builder = context_builder
         self._top_k = top_k
         self._scope_field = scope_metadata_field
+        self._tokenizer = tokenizer
+        self._static_sparse = static_sparse_indexes
+
+    # ---- read ----------------------------------------------------------------
 
     def BuildContext(
         self,
@@ -66,7 +74,6 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
             query_embedding = self._embedding.embed_query(request.query_text)
         except Exception:
             # rag.md 폴백: 임베딩 실패도 검색 실패다. RPC를 끊지 말고 폴백으로 대화를 유지한다.
-            # 단, 모델 로드 실패 등 심각한 문제일 수 있으므로 ERROR 로그를 크게 남긴다.
             logger.exception(
                 "임베딩 실패 — 폴백으로 응답합니다. trace_id=%s turn_id=%s",
                 request.trace_id,
@@ -78,12 +85,10 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
         for collection in self._resolve_collections(request.collections):
             should_search, where = self._scope(collection, request.target_user_id)
             if not should_search:
-                logger.warning(
-                    "스코프 미설정으로 private 컬렉션 '%s' 검색을 건너뜁니다.",
-                    collection.value,
-                )
+                logger.warning("컬렉션 '%s' 검색을 건너뜁니다(스코프 미충족).", collection.value)
                 continue
             try:
+                sparse_index = self._sparse_index_for(collection, where)
                 hits.extend(
                     self._repository.hybrid_search(
                         collection,
@@ -91,6 +96,7 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
                         query_embedding,
                         self._top_k,
                         where=where,
+                        sparse_index=sparse_index,
                     )
                 )
             except Exception:
@@ -116,16 +122,101 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
     def _scope(
         self, collection: ChromaCollection, target_user_id: str
     ) -> tuple[bool, dict | None]:
-        """(검색 여부, where 필터)를 돌려준다.
-
-        public은 필터 없이 검색. private는 스코프 필드+식별자가 있어야만 검색하고,
-        없으면 검색하지 않는다(스코프 없는 private 검색 금지 — rag.md).
-        """
-        if collection in _PUBLIC_COLLECTIONS:
-            return True, None
-        if self._scope_field and target_user_id:
-            return True, {self._scope_field: target_user_id}
+        """(검색 여부, where 필터)를 돌려준다."""
+        if collection == ChromaCollection.STATIC_KNOWLEDGE:
+            return True, None  # public, 필터 없음
+        if collection == ChromaCollection.ELDER:
+            # 노인별 스코프. 스코프 필드+식별자가 있어야만 검색(없으면 유출 방지 위해 스킵).
+            if self._scope_field and target_user_id:
+                return True, {self._scope_field: target_user_id}
+            return False, None
+        # guardian: 보호자 식별자·권한 매핑이 ERD 미확정이라 아직 검색하지 않는다.
         return False, None
+
+    def _sparse_index_for(
+        self, collection: ChromaCollection, where: dict | None
+    ) -> SparseIndexProtocol | None:
+        """이 검색에 쓸 BM25 색인을 고른다.
+
+        public(static_knowledge)은 기동 시 만든 공유 색인. elder는 그 노인 문서로만 요청별로
+        즉석 빌드(명사 토큰화, 고유명사 중심). 스코프된 문서로만 지어지므로 유출이 불가능하다.
+        """
+        static_index = self._static_sparse.get(collection)
+        if static_index is not None:
+            return static_index
+        if collection == ChromaCollection.ELDER and where is not None:
+            documents = self._repository.load_documents(collection, where=where)
+            index = Bm25Index(self._tokenizer.tokenize_nouns)
+            index.build(documents)
+            return index
+        return None
+
+    # ---- write ---------------------------------------------------------------
+
+    def StoreConversation(
+        self,
+        request: rag_pb2.StoreConversationRequest,
+        context: grpc.ServicerContext,
+    ) -> rag_pb2.StoreConversationResponse:
+        # 보안: 추적 식별자·건수만 로깅, 발화 원문은 남기지 않는다.
+        logger.info(
+            "StoreConversation 수신 trace_id=%s target_user_id=%s session_id=%s turns=%d",
+            request.trace_id,
+            request.target_user_id,
+            request.session_id,
+            len(request.turns),
+        )
+
+        ids, texts, metadatas = self._prepare_elder_documents(request)
+        if not ids:
+            return rag_pb2.StoreConversationResponse(stored_count=0)
+
+        try:
+            embeddings = self._embedding.embed_documents(texts)
+            self._repository.add_documents(
+                ChromaCollection.ELDER, ids, embeddings, texts, metadatas
+            )
+        except Exception:
+            logger.exception(
+                "StoreConversation 저장 실패 trace_id=%s session_id=%s",
+                request.trace_id,
+                request.session_id,
+            )
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details("elder 대화 저장에 실패했습니다.")
+            return rag_pb2.StoreConversationResponse(stored_count=0)
+
+        return rag_pb2.StoreConversationResponse(stored_count=len(ids))
+
+    def _prepare_elder_documents(
+        self, request: rag_pb2.StoreConversationRequest
+    ) -> tuple[list[str], list[str], list[dict]]:
+        """턴(STT텍스트+LLM응답)을 저장할 (ids, texts, metadatas)로 펼친다.
+
+        id는 결정적(session:turn:role)이라 재호출 시 upsert로 멱등하다. 빈 텍스트는 건너뛴다.
+        메타데이터는 read 스코프와 동일 키(scope_field)로 target_user_id를 부착하고, 삭제
+        정책 기준이 되는 timestamp도 함께 붙인다(memory-state).
+        """
+        stored_at = datetime.now(timezone.utc).isoformat()
+        ids: list[str] = []
+        texts: list[str] = []
+        metadatas: list[dict] = []
+        for turn in request.turns:
+            for role, text in (("user", turn.stt_text), ("ai", turn.llm_response_text)):
+                if not text.strip():
+                    continue
+                ids.append(f"{request.session_id}:{turn.turn_id}:{role}")
+                texts.append(text)
+                metadatas.append(
+                    {
+                        self._scope_field: request.target_user_id,
+                        "session_id": request.session_id,
+                        "turn_id": turn.turn_id,
+                        "role": role,
+                        "timestamp": stored_at,
+                    }
+                )
+        return ids, texts, metadatas
 
 
 def _to_proto_chunk(hit: SearchHit) -> rag_pb2.ContextChunk:
@@ -137,28 +228,30 @@ def _to_proto_chunk(hit: SearchHit) -> rag_pb2.ContextChunk:
     )
 
 
-def _build_sparse_indexes(repository: ChromaRepository) -> None:
-    """static_knowledge의 BM25 sparse 색인을 구축해 repository에 등록한다.
+def _build_static_sparse_indexes(
+    repository: ChromaRepository, tokenizer: MeCabTokenizer
+) -> dict[ChromaCollection, SparseIndexProtocol]:
+    """static_knowledge의 공유 BM25 색인을 기동 시 1회 구축한다(전체 토큰).
 
-    private(elder/guardian)은 노인별/보호자별 스코프라 전역 BM25 대상이 아니며, 스코프
-    필터도 미확정이라 sparse 대상에서 제외한다(dense-skip 상태 유지). 공용 지식만 sparse.
+    elder는 요청별로 짓기 때문에 여기서 만들지 않는다. guardian은 검색 대상 아님.
     """
-    tokenizer = MeCabTokenizer()
     collection = ChromaCollection.STATIC_KNOWLEDGE
-    documents = repository.load_documents(collection)
-    index = Bm25Index(tokenizer)
-    index.build(documents)
-    repository.set_sparse_index(collection, index)
-    logger.info("BM25 sparse 색인 구축 완료: %s (%d docs)", collection.value, len(documents))
+    index = Bm25Index(tokenizer.tokenize)
+    index.build(repository.load_documents(collection))
+    logger.info("BM25 공유 색인 구축 완료: %s", collection.value)
+    return {collection: index}
 
 
 def _build_servicer(settings: Settings, repository: ChromaRepository) -> RagServicer:
+    tokenizer = MeCabTokenizer()
     return RagServicer(
         embedding_client=EmbeddingClient(settings.embedding_model_name),
         repository=repository,
         context_builder=ContextBuilder(),
         top_k=settings.search_top_k,
         scope_metadata_field=settings.scope_metadata_field,
+        tokenizer=tokenizer,
+        static_sparse_indexes=_build_static_sparse_indexes(repository, tokenizer),
     )
 
 
@@ -172,9 +265,6 @@ def serve() -> None:
     repository = ChromaRepository(chroma_client, rrf_k=settings.rrf_k)
     repository.ensure_required_collections()
     logger.info("ChromaDB connected. Collections: %s", repository.collection_names())
-
-    # BM25 sparse 색인을 기동 시 1회 구축·상주(static_knowledge만). rag.md: dense와 분리 운용.
-    _build_sparse_indexes(repository)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     rag_pb2_grpc.add_RagServiceServicer_to_server(

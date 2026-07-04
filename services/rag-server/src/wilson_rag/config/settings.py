@@ -21,10 +21,11 @@ class Settings(BaseSettings):
     # 하이브리드(dense+BM25) RRF 융합 상수. score = 1/(k+rank). 표준 기본값 60.
     rrf_k: int = 60
 
-    # elder/guardian(private) 스코프 필터에 쓸 메타데이터 키.
-    # write측(memory-state)/ERD 미확정이라 기본은 빈 값 = private 검색 비활성.
-    # 빈 값인 동안에는 스코프 없이 private 컬렉션을 검색하지 않는다(개인정보 유출 방지).
-    scope_metadata_field: str = ""  # 확정 후 예: "target_user_id"
+    # elder 스코프 필터·저장에 쓸 소유자 메타데이터 키. write(저장)와 read(검색)가
+    # 같은 키를 써야 스코프 검색이 성립한다. 팀 합의로 노인 가명 ID인 `target_user_id`로 확정.
+    # 빈 값이면 elder 검색을 스킵한다(유출 방지 안전장치). guardian은 ERD 미확정이라 이 값과
+    # 무관하게 아직 검색하지 않는다.
+    scope_metadata_field: str = "target_user_id"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -15,7 +15,18 @@ class MeCabTokenizer:
     def tokenize(self, text: str) -> list[str]:
         """표층형(surface) 토큰 리스트를 돌려준다(공백 토큰 제외).
 
-        # ASSUMPTION: MVP는 표층형으로 토큰화한다. 품사 필터·기본형(lemma) 정규화는
-        # 검색 품질 고도화 시 도입(후순위). rag.md는 이 결과를 BM25 토큰으로만 해석한다.
+        # ASSUMPTION: 표층형으로 토큰화한다. 기본형(lemma) 정규화는 후순위.
         """
         return [word.surface for word in self._tagger(text) if word.surface.strip()]
+
+    def tokenize_nouns(self, text: str) -> list[str]:
+        """명사(名詞) 표층형만 돌려준다 — 고유명사 중심 경량 색인용(elder BM25).
+
+        조사·조동사 등 잡음을 버려 색인을 경량화하고 dense와 역할을 직교시킨다(의미=dense,
+        식별자(사람·지명·약명)=sparse). 固有名詞도 pos1 상 名詞라 함께 포착된다.
+        """
+        return [
+            word.surface
+            for word in self._tagger(text)
+            if word.surface.strip() and getattr(word.feature, "pos1", None) == "名詞"
+        ]

@@ -24,21 +24,27 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\trag.proto\x12\rwilson.rag.v1\"\xae\x01\n\x13\x42uildContextRequest\x12\x10\n\x08trace_id\x18\x01 \x01(\t\x12\x0f\n\x07turn_id\x18\x02 \x01(\t\x12\x16\n\x0etarget_user_id\x18\x03 \x01(\t\x12\x12\n\nsession_id\x18\x04 \x01(\t\x12\x12\n\nquery_text\x18\x05 \x01(\t\x12\x34\n\x0b\x63ollections\x18\x06 \x03(\x0e\x32\x1f.wilson.rag.v1.ChromaCollection\"T\n\x0c\x43ontextChunk\x12\x12\n\ncollection\x18\x01 \x01(\t\x12\x13\n\x0b\x64ocument_id\x18\x02 \x01(\t\x12\x0c\n\x04text\x18\x03 \x01(\t\x12\r\n\x05score\x18\x04 \x01(\x02\"Z\n\x14\x42uildContextResponse\x12+\n\x06\x63hunks\x18\x01 \x03(\x0b\x32\x1b.wilson.rag.v1.ContextChunk\x12\x15\n\rfallback_used\x18\x02 \x01(\x08*d\n\x10\x43hromaCollection\x12!\n\x1d\x43HROMA_COLLECTION_UNSPECIFIED\x10\x00\x12\x14\n\x10STATIC_KNOWLEDGE\x10\x01\x12\t\n\x05\x45LDER\x10\x02\x12\x0c\n\x08GUARDIAN\x10\x03\x32\x65\n\nRagService\x12W\n\x0c\x42uildContext\x12\".wilson.rag.v1.BuildContextRequest\x1a#.wilson.rag.v1.BuildContextResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\trag.proto\x12\rwilson.rag.v1\"\xae\x01\n\x13\x42uildContextRequest\x12\x10\n\x08trace_id\x18\x01 \x01(\t\x12\x0f\n\x07turn_id\x18\x02 \x01(\t\x12\x16\n\x0etarget_user_id\x18\x03 \x01(\t\x12\x12\n\nsession_id\x18\x04 \x01(\t\x12\x12\n\nquery_text\x18\x05 \x01(\t\x12\x34\n\x0b\x63ollections\x18\x06 \x03(\x0e\x32\x1f.wilson.rag.v1.ChromaCollection\"T\n\x0c\x43ontextChunk\x12\x12\n\ncollection\x18\x01 \x01(\t\x12\x13\n\x0b\x64ocument_id\x18\x02 \x01(\t\x12\x0c\n\x04text\x18\x03 \x01(\t\x12\r\n\x05score\x18\x04 \x01(\x02\"Z\n\x14\x42uildContextResponse\x12+\n\x06\x63hunks\x18\x01 \x03(\x0b\x32\x1b.wilson.rag.v1.ContextChunk\x12\x15\n\rfallback_used\x18\x02 \x01(\x08\"P\n\x10\x43onversationTurn\x12\x0f\n\x07turn_id\x18\x01 \x01(\t\x12\x10\n\x08stt_text\x18\x02 \x01(\t\x12\x19\n\x11llm_response_text\x18\x03 \x01(\t\"\x88\x01\n\x18StoreConversationRequest\x12\x10\n\x08trace_id\x18\x01 \x01(\t\x12\x16\n\x0etarget_user_id\x18\x02 \x01(\t\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12.\n\x05turns\x18\x04 \x03(\x0b\x32\x1f.wilson.rag.v1.ConversationTurn\"1\n\x19StoreConversationResponse\x12\x14\n\x0cstored_count\x18\x01 \x01(\r*d\n\x10\x43hromaCollection\x12!\n\x1d\x43HROMA_COLLECTION_UNSPECIFIED\x10\x00\x12\x14\n\x10STATIC_KNOWLEDGE\x10\x01\x12\t\n\x05\x45LDER\x10\x02\x12\x0c\n\x08GUARDIAN\x10\x03\x32\xcd\x01\n\nRagService\x12W\n\x0c\x42uildContext\x12\".wilson.rag.v1.BuildContextRequest\x1a#.wilson.rag.v1.BuildContextResponse\x12\x66\n\x11StoreConversation\x12\'.wilson.rag.v1.StoreConversationRequest\x1a(.wilson.rag.v1.StoreConversationResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'rag_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CHROMACOLLECTION']._serialized_start=383
-  _globals['_CHROMACOLLECTION']._serialized_end=483
+  _globals['_CHROMACOLLECTION']._serialized_start=655
+  _globals['_CHROMACOLLECTION']._serialized_end=755
   _globals['_BUILDCONTEXTREQUEST']._serialized_start=29
   _globals['_BUILDCONTEXTREQUEST']._serialized_end=203
   _globals['_CONTEXTCHUNK']._serialized_start=205
   _globals['_CONTEXTCHUNK']._serialized_end=289
   _globals['_BUILDCONTEXTRESPONSE']._serialized_start=291
   _globals['_BUILDCONTEXTRESPONSE']._serialized_end=381
-  _globals['_RAGSERVICE']._serialized_start=485
-  _globals['_RAGSERVICE']._serialized_end=586
+  _globals['_CONVERSATIONTURN']._serialized_start=383
+  _globals['_CONVERSATIONTURN']._serialized_end=463
+  _globals['_STORECONVERSATIONREQUEST']._serialized_start=466
+  _globals['_STORECONVERSATIONREQUEST']._serialized_end=602
+  _globals['_STORECONVERSATIONRESPONSE']._serialized_start=604
+  _globals['_STORECONVERSATIONRESPONSE']._serialized_end=653
+  _globals['_RAGSERVICE']._serialized_start=758
+  _globals['_RAGSERVICE']._serialized_end=963
 # @@protoc_insertion_point(module_scope)
