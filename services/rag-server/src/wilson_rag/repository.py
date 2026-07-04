@@ -48,20 +48,36 @@ class ChromaRepository:
     def __init__(self, client: ChromaClientProtocol, rrf_k: int = 60) -> None:
         self.client = client
         self._rrf_k = rrf_k
-        self._sparse_indexes: dict[ChromaCollection, SparseIndexProtocol] = {}
 
-    def set_sparse_index(
-        self, collection: ChromaCollection, index: SparseIndexProtocol
-    ) -> None:
-        self._sparse_indexes[collection] = index
+    def load_documents(
+        self, collection: ChromaCollection, where: dict | None = None
+    ) -> list[tuple[str, str]]:
+        """컬렉션의 (document_id, text)를 읽어온다(BM25 색인 구축용).
 
-    def load_documents(self, collection: ChromaCollection) -> list[tuple[str, str]]:
-        """컬렉션의 모든 (document_id, text)를 읽어온다(BM25 색인 구축용)."""
+        `where`로 스코프를 걸 수 있다. static_knowledge는 where=None(전량), elder는
+        where={target_user_id}로 그 노인 문서만 읽어 요청별 스코프 BM25를 짓는다.
+        """
         chroma_collection = self.client.get_collection(
             collection.value, embedding_function=None
         )
-        got = chroma_collection.get(include=["documents"])
+        got = chroma_collection.get(where=where, include=["documents"])
         return [(doc_id, text or "") for doc_id, text in zip(got["ids"], got["documents"])]
+
+    def add_documents(
+        self,
+        collection: ChromaCollection,
+        ids: list[str],
+        embeddings: list[list[float]],
+        documents: list[str],
+        metadatas: list[dict],
+    ) -> None:
+        """컬렉션에 문서를 upsert한다(elder write). 결정적 id로 멱등하게 재호출 가능."""
+        chroma_collection = self.client.get_collection(
+            collection.value, embedding_function=None
+        )
+        chroma_collection.upsert(
+            ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas
+        )
 
     def ensure_required_collections(self) -> None:
         for collection in REQUIRED_COLLECTIONS:
@@ -163,20 +179,18 @@ class ChromaRepository:
         query_embedding: list[float],
         top_k: int,
         where: dict | None = None,
+        sparse_index: SparseIndexProtocol | None = None,
     ) -> list[SearchHit]:
         """dense + BM25(sparse)를 RRF로 융합해 반환한다.
 
-        sparse 색인이 없는 컬렉션(예: 색인 미구축)은 dense 단독으로 정상 degrade한다.
-        dense와 sparse는 물리적으로 분리 운용하며, 결합은 순위 기반 RRF로만 한다(rag.md).
+        sparse_index는 호출측(servicer)이 주입한다 — public은 기동 시 만든 공유 정적 색인,
+        elder는 그 노인 문서로만 요청별로 빌드한 스코프 색인이다. 후자는 스코프된 문서로만
+        지어지므로 유출이 구조적으로 불가능하다(dense의 where 스코프와 정합). sparse_index가
+        없으면 dense 단독으로 정상 degrade한다. 결합은 순위 기반 RRF로만 한다(rag.md).
         """
         dense_hits = self.dense_search(collection, query_embedding, top_k, where=where)
 
-        # 스코프(where)가 걸린 검색은 sparse 융합을 하지 않는다. 인메모리 BM25는 스코프
-        # 필터를 적용할 수 없어, private 컬렉션에 sparse를 붙이면 스코프 밖(다른 사용자)
-        # 문서가 섞여 유출된다(rag.md: 스코프 없이 private 검색 금지). 따라서 public
-        # (where=None) 검색에서만 sparse를 융합하고, 그 외엔 dense(스코프 적용)만 쓴다.
-        sparse_index = self._sparse_indexes.get(collection)
-        if where is not None or sparse_index is None or sparse_index.is_empty():
+        if sparse_index is None or sparse_index.is_empty():
             return dense_hits
 
         sparse_results = sparse_index.search(query_text, top_k)

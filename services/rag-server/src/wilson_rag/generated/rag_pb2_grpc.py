@@ -39,12 +39,23 @@ class RagServiceStub:
                 request_serializer=rag__pb2.BuildContextRequest.SerializeToString,
                 response_deserializer=rag__pb2.BuildContextResponse.FromString,
                 _registered_method=True)
+        self.StoreConversation = channel.unary_unary(
+                '/wilson.rag.v1.RagService/StoreConversation',
+                request_serializer=rag__pb2.StoreConversationRequest.SerializeToString,
+                response_deserializer=rag__pb2.StoreConversationResponse.FromString,
+                _registered_method=True)
 
 
 class RagServiceServicer:
     """Missing associated documentation comment in .proto file."""
 
     def BuildContext(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StoreConversation(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -57,6 +68,11 @@ def add_RagServiceServicer_to_server(servicer, server):
                     servicer.BuildContext,
                     request_deserializer=rag__pb2.BuildContextRequest.FromString,
                     response_serializer=rag__pb2.BuildContextResponse.SerializeToString,
+            ),
+            'StoreConversation': grpc.unary_unary_rpc_method_handler(
+                    servicer.StoreConversation,
+                    request_deserializer=rag__pb2.StoreConversationRequest.FromString,
+                    response_serializer=rag__pb2.StoreConversationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -86,6 +102,33 @@ class RagService:
             '/wilson.rag.v1.RagService/BuildContext',
             rag__pb2.BuildContextRequest.SerializeToString,
             rag__pb2.BuildContextResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StoreConversation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/wilson.rag.v1.RagService/StoreConversation',
+            rag__pb2.StoreConversationRequest.SerializeToString,
+            rag__pb2.StoreConversationResponse.FromString,
             options,
             channel_credentials,
             insecure,
