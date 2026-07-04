@@ -171,8 +171,12 @@ class ChromaRepository:
         """
         dense_hits = self.dense_search(collection, query_embedding, top_k, where=where)
 
+        # 스코프(where)가 걸린 검색은 sparse 융합을 하지 않는다. 인메모리 BM25는 스코프
+        # 필터를 적용할 수 없어, private 컬렉션에 sparse를 붙이면 스코프 밖(다른 사용자)
+        # 문서가 섞여 유출된다(rag.md: 스코프 없이 private 검색 금지). 따라서 public
+        # (where=None) 검색에서만 sparse를 융합하고, 그 외엔 dense(스코프 적용)만 쓴다.
         sparse_index = self._sparse_indexes.get(collection)
-        if sparse_index is None or sparse_index.is_empty():
+        if where is not None or sparse_index is None or sparse_index.is_empty():
             return dense_hits
 
         sparse_results = sparse_index.search(query_text, top_k)
