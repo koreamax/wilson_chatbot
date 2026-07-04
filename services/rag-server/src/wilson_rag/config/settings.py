@@ -23,8 +23,9 @@ class Settings(BaseSettings):
 
     # elder 스코프 필터·저장에 쓸 소유자 메타데이터 키. write(저장)와 read(검색)가
     # 같은 키를 써야 스코프 검색이 성립한다. 팀 합의로 노인 가명 ID인 `target_user_id`로 확정.
-    # 빈 값이면 elder 검색을 스킵한다(유출 방지 안전장치). guardian은 ERD 미확정이라 이 값과
-    # 무관하게 아직 검색하지 않는다.
+    # 빈 값이면 elder 검색을 스킵하고 저장도 거부한다(유출·유령데이터 방지 안전장치).
+    # 주의: 데이터가 쌓인 뒤 이 값을 바꾸면 기존 문서는 옛 키를 가져 검색에서 누락된다 —
+    # 변경 시 elder 재색인이 필요하다. guardian은 ERD 미확정이라 이 값과 무관하게 아직 검색 안 함.
     scope_metadata_field: str = "target_user_id"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

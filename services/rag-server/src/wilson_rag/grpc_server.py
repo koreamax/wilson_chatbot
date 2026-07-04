@@ -167,6 +167,19 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
             len(request.turns),
         )
 
+        # 스코프 키가 없으면 저장을 거부한다. 빈 키로 저장하면 read가 스코프로 못 찾는
+        # 유령 데이터(검색 불가한 개인정보)가 쌓이므로, 조용히 넘기지 말고 강하게 실패시켜
+        # 설정 오류를 드러낸다. (scope_metadata_field는 write 키이자 read 필터 키다.)
+        if not self._scope_field:
+            logger.error(
+                "scope_metadata_field 미설정 — elder 저장을 거부합니다. trace_id=%s session_id=%s",
+                request.trace_id,
+                request.session_id,
+            )
+            context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
+            context.set_details("scope_metadata_field 미설정으로 elder 저장을 할 수 없습니다.")
+            return rag_pb2.StoreConversationResponse(stored_count=0)
+
         ids, texts, metadatas = self._prepare_elder_documents(request)
         if not ids:
             return rag_pb2.StoreConversationResponse(stored_count=0)
