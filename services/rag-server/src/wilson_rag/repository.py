@@ -37,8 +37,8 @@ class ChromaClientProtocol(Protocol):
 
 
 class SparseIndexProtocol(Protocol):
-    """BM25 색인 덕타이핑. 실물(Bm25Index)은 fugashi를 끌어오므로 여기서 import하지 않는다
-    (healthcheck·init_collections가 repository만 import해도 fugashi가 필요해지지 않게)."""
+    """BM25 색인 덕타이핑. 실물(Bm25Index)·토크나이저(kiwipiepy)를 여기서 import하지 않아,
+    healthcheck·init_collections가 repository만 import해도 무거운 형태소 분석기가 안 딸려온다."""
 
     def search(self, query_text: str, top_k: int) -> list[tuple[str, str]]: ...
     def is_empty(self) -> bool: ...
@@ -90,7 +90,7 @@ class ChromaRepository:
                 # rag.md 절대 규칙: cosine 거리 지표 강제. 생성이 중앙화된 이곳에서 강제해
                 # 서버 기동·초기화 Job 등 모든 생성 경로가 cosine을 보장하게 한다.
                 configuration={"hnsw": {"space": HNSW_SPACE}},
-                # 임베딩은 ruri-v3가 담당하고 벡터를 명시 전달한다. 기본 EF를 넘기면
+                # 임베딩은 KURE-v1이 담당하고 벡터를 명시 전달한다. 기본 EF를 넘기면
                 # cosine 유효성 검증을 위해 ONNX 기본 모델을 내려받으므로 None으로 둔다.
                 embedding_function=None,
             )

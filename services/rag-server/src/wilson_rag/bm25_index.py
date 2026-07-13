@@ -9,7 +9,7 @@ class Bm25Index:
     ChromaDB 로컬 모드는 sparse 색인을 지원하지 않으므로 dense와 **물리적으로 분리**해
     운용한다(rag.md). static_knowledge는 기동 시 1회 구축·상주하고, elder는 그 노인 문서로만
     요청별로 짧게 구축·폐기한다. 토큰화 함수를 주입받아 static(전체 토큰)/elder(명사만) 등
-    용도별로 다른 토큰화를 쓸 수 있다. fugashi를 직접 import하지 않아(주입) 가볍다.
+    용도별로 다른 토큰화를 쓸 수 있다. 토크나이저를 직접 import하지 않고 주입받아 가볍다.
     """
 
     def __init__(self, tokenize: Callable[[str], list[str]]) -> None:
