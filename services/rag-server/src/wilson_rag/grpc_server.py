@@ -11,7 +11,7 @@ from wilson_rag.context_builder import ContextBuilder
 from wilson_rag.embedding_client import EmbeddingClient
 from wilson_rag.generated import rag_pb2, rag_pb2_grpc
 from wilson_rag.infrastructure.chroma_client import create_chroma_client, wait_for_chroma
-from wilson_rag.mecab_tokenizer import MeCabTokenizer
+from wilson_rag.kiwi_tokenizer import KiwiTokenizer
 from wilson_rag.repository import ChromaRepository, SearchHit, SparseIndexProtocol
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ _PROTO_TO_COLLECTION: dict[int, ChromaCollection] = {
 class RagServicer(rag_pb2_grpc.RagServiceServicer):
     """RagService 구현 — BuildContext(read, 하이브리드)와 StoreConversation(write, elder).
 
-    read: query_text를 ruri-v3로 임베딩해 요청 컬렉션을 하이브리드(dense+BM25 RRF) 검색.
+    read: query_text를 KURE-v1로 임베딩해 요청 컬렉션을 하이브리드(dense+BM25 RRF) 검색.
       static_knowledge는 기동 시 만든 공유 BM25 색인을, elder는 그 노인 문서로만 요청별로
       지은 스코프 BM25 색인을 쓴다(스코프된 문서로만 지어 유출 불가). guardian은 ERD 미확정이라
       검색하지 않는다.
@@ -42,7 +42,7 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
         context_builder: ContextBuilder,
         top_k: int,
         scope_metadata_field: str,
-        tokenizer: MeCabTokenizer,
+        tokenizer: KiwiTokenizer,
         static_sparse_indexes: dict[ChromaCollection, SparseIndexProtocol],
     ) -> None:
         self._embedding = embedding_client
@@ -146,7 +146,7 @@ class RagServicer(rag_pb2_grpc.RagServiceServicer):
             return static_index
         if collection == ChromaCollection.ELDER and where is not None:
             documents = self._repository.load_documents(collection, where=where)
-            index = Bm25Index(self._tokenizer.tokenize_nouns)
+            index = Bm25Index(self._tokenizer.tokenize)
             index.build(documents)
             return index
         return None
@@ -242,9 +242,9 @@ def _to_proto_chunk(hit: SearchHit) -> rag_pb2.ContextChunk:
 
 
 def _build_static_sparse_indexes(
-    repository: ChromaRepository, tokenizer: MeCabTokenizer
+    repository: ChromaRepository, tokenizer: KiwiTokenizer
 ) -> dict[ChromaCollection, SparseIndexProtocol]:
-    """static_knowledge의 공유 BM25 색인을 기동 시 1회 구축한다(전체 토큰).
+    """static_knowledge의 공유 BM25 색인을 기동 시 1회 구축한다(내용어 화이트리스트).
 
     elder는 요청별로 짓기 때문에 여기서 만들지 않는다. guardian은 검색 대상 아님.
     """
@@ -256,7 +256,7 @@ def _build_static_sparse_indexes(
 
 
 def _build_servicer(settings: Settings, repository: ChromaRepository) -> RagServicer:
-    tokenizer = MeCabTokenizer()
+    tokenizer = KiwiTokenizer()
     return RagServicer(
         embedding_client=EmbeddingClient(settings.embedding_model_name),
         repository=repository,

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     chroma_connect_timeout_seconds: float = 30.0
 
     # dense 검색
-    embedding_model_name: str = "cl-nagoya/ruri-v3-310m"
+    embedding_model_name: str = "nlpai-lab/KURE-v1"  # 한국어, 1024차원, 프리픽스 없음
     search_top_k: int = 5  # ASSUMPTION: 컬렉션당 검색 결과 수 기본값, 조정 가능
 
     # 하이브리드(dense+BM25) RRF 융합 상수. score = 1/(k+rank). 표준 기본값 60.
