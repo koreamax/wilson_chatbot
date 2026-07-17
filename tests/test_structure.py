@@ -35,7 +35,7 @@ class StructureTest(unittest.TestCase):
     def test_four_service_directories_exist(self):
         self.assertTrue((ROOT / "services" / "orchestrator-server").exists())
         self.assertTrue((ROOT / "services" / "rag-server").exists())
-        self.assertTrue((ROOT / "services" / "ollama-gpt-server").exists())
+        self.assertTrue((ROOT / "services" / "llm-server").exists())
         self.assertTrue((ROOT / "services" / "chroma-db").exists())
 
     def test_chroma_nodeport_overlay_exists(self):
