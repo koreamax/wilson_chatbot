@@ -3,7 +3,7 @@
 Wilson AI 서버는 하나의 레포 안에서 4개 배포 단위로 관리한다.
 
 1. `services/rag-server`: 임베딩, Chroma 검색, 컨텍스트 조립
-2. `services/ollama-gpt-server`: Ollama 기반 LLM 추론과 토큰 스트리밍
+2. `services/llm-server`: LLM 추론(NVIDIA NIM, 프로바이더 추상화)과 토큰 스트리밍
 3. `services/orchestrator-server`: 외부 gRPC 진입점, STT → RAG → LLM → TTS 오케스트레이션, 치매/음성 분석 트리거
 4. `services/chroma-db`: ChromaDB Stateful 배포
 
@@ -28,7 +28,7 @@ proto/
 services/
   orchestrator-server/  # gRPC 진입점, STT/RAG/LLM/TTS 조율
   rag-server/           # 임베딩, Chroma 검색, 컨텍스트 조립
-  ollama-gpt-server/    # Ollama LLM 추론
+  llm-server/    # LLM 추론(NVIDIA NIM)
   chroma-db/            # ChromaDB StatefulSet
 ```
 
@@ -39,7 +39,7 @@ monorepo 루트에서 서비스별 Dockerfile을 지정해 빌드한다.
 ```powershell
 docker build -f services/orchestrator-server/Dockerfile -t wilson/orchestrator-server:dev .
 docker build -f services/rag-server/Dockerfile -t wilson/rag-server:dev .
-docker build -f services/ollama-gpt-server/Dockerfile -t wilson/ollama-gpt-server:dev .
+docker build -f services/llm-server/Dockerfile -t wilson/llm-server:dev .
 ```
 
 ChromaDB는 공식 이미지를 사용하므로 별도 빌드하지 않는다.
@@ -49,7 +49,7 @@ ChromaDB는 공식 이미지를 사용하므로 별도 빌드하지 않는다.
 ```powershell
 kubectl apply -k services/chroma-db/k8s/base
 kubectl apply -k services/rag-server/k8s/base
-kubectl apply -k services/ollama-gpt-server/k8s/base
+kubectl apply -k services/llm-server/k8s/base
 kubectl apply -k services/orchestrator-server/k8s/base
 ```
 

@@ -22,6 +22,6 @@ spec:
             - name: RAG_SERVER_TARGET
               value: rag-server:50052
             - name: LLM_SERVER_TARGET
-              value: ollama-gpt-server:50053
+              value: llm-server:50053
             - name: LANGUAGE_CODE
               value: ja-JP

@@ -11,6 +11,7 @@ env/
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # FastAPI / Python logs
 *.log
@@ -56,3 +57,10 @@ Thumbs.db
 .env
 *.env
 
+# claude setup
+/.claude
+
+
+/docs/tech-highlights.md
+
+/requirements.txt
