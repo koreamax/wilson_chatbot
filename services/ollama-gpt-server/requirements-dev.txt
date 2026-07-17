@@ -1,0 +1,3 @@
+# 빌드/개발 전용. proto 스텁 생성용(런타임 불포함). 생성물은 체크인한다.
+-r requirements.txt
+grpcio-tools==1.81.1
