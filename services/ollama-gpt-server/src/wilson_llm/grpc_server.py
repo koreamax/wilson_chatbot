@@ -45,7 +45,6 @@ class LlmServicer(llm_pb2_grpc.LlmServiceServicer):
 
 async def serve() -> None:
     """Start the internal LLM gRPC(aio) server."""
-    logging.basicConfig(level=logging.INFO)
     settings = get_settings()
 
     if not settings.nvidia_api_key:
