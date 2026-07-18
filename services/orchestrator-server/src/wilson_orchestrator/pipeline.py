@@ -53,6 +53,12 @@ class DialoguePipeline:
             yield _error_frame(dialogue_pb2.ERROR_STAGE_STT, "")
             return
 
+        # 빈/공백 발화 방어(1차 방어는 BE). 빈 입력으로 RAG·LLM을 낭비하지 않는다.
+        if not stt_text:
+            logger.info("빈 발화 — 처리 생략. trace_id=%s turn_id=%s", turn.trace_id, turn.turn_id)
+            yield _error_frame(dialogue_pb2.ERROR_STAGE_STT, "")
+            return
+
         # 프레임 1: STT 결과 선전송(grpc.md — 반드시 첫 프레임).
         yield dialogue_pb2.StreamResponse(
             metadata=dialogue_pb2.MetadataFrame(stt_text=stt_text)
