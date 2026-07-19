@@ -12,6 +12,7 @@ import grpc
 
 from wilson_orchestrator.adapters.llm_client import LlmClient
 from wilson_orchestrator.adapters.rag_client import RagClient
+from wilson_orchestrator.adapters.stt_client import SttClient
 from wilson_orchestrator.generated import dialogue_pb2_grpc
 from wilson_orchestrator.pipeline import DialoguePipeline, DialogueTurn
 from wilson_orchestrator.settings import get_settings
@@ -49,9 +50,18 @@ async def serve() -> None:
     """Start the external DialogueService gRPC(aio) server."""
     settings = get_settings()
 
+    if not settings.azure_speech_key:
+        # 키가 없으면 STT가 실패한다. 조용히 넘기지 말고 크게 경고(실키는 로그에 안 남김).
+        logger.error(
+            "AZURE_SPEECH_KEY 미설정 — .env(로컬) 또는 K8s Secret에 키를 주입해야 STT가 동작합니다."
+        )
+
+    stt_client = SttClient(
+        settings.azure_speech_key, settings.azure_speech_region, settings.language_code
+    )
     rag_client = RagClient(settings.rag_server_target)
     llm_client = LlmClient(settings.llm_server_target)
-    pipeline = DialoguePipeline(rag_client, llm_client, settings)
+    pipeline = DialoguePipeline(stt_client, rag_client, llm_client, settings)
 
     server = grpc.aio.server()
     dialogue_pb2_grpc.add_DialogueServiceServicer_to_server(DialogueServicer(pipeline), server)

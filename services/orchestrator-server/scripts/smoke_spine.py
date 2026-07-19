@@ -21,6 +21,12 @@ from wilson_orchestrator.settings import Settings
 _EXPECTED_ANSWER = "네, 어르신. 천천히 말씀해 주세요."
 
 
+class _FakeStt:
+    # STT를 대체 — 오디오 바이트를 텍스트로 그대로 돌려 배선만 검증(실제 Azure 호출 없음).
+    async def transcribe(self, audio_payload: bytes, audio_format: str) -> str:
+        return audio_payload.decode("utf-8")
+
+
 class _FakeRag:
     async def build_context(self, **_kwargs) -> RagContext:
         return RagContext(chunk_texts=["복약 안내: 아침 8시, 저녁 7시"], fallback_used=False)
@@ -33,7 +39,7 @@ class _FakeLlm:
 
 
 async def main() -> None:
-    pipeline = DialoguePipeline(_FakeRag(), _FakeLlm(), Settings())
+    pipeline = DialoguePipeline(_FakeStt(), _FakeRag(), _FakeLlm(), Settings())
 
     server = grpc.aio.server()
     dialogue_pb2_grpc.add_DialogueServiceServicer_to_server(DialogueServicer(pipeline), server)

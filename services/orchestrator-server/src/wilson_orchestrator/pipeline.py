@@ -1,8 +1,7 @@
 """대화 파이프라인 — STT → RAG → LLM → TTS 조율.
 
-Phase 1(텍스트 스파인): 실제 STT/TTS는 아직 연결하지 않는다. 입력 오디오 바이트를 UTF-8
-텍스트로 해석하는 임시 브리지로 전 구간(③→①→②)을 잇고, 출력은 오디오 청크 없이
-Metadata→Completion 프레임으로 흘린다. Phase 2에서 STT/TTS를 이 자리에 끼운다.
+STT는 Azure Speech(#22)로 연결됨. 출력(TTS/AudioChunk)은 아직 미연결(Phase 2-B)이라,
+LLM 토큰을 내부에서 누적해 Metadata→Completion 프레임으로 흘린다.
 
 프레임 계약은 grpc.md 소유: 첫 프레임은 MetadataFrame, 정상 종료는 CompletionFrame,
 실패는 gRPC status로 스트림을 끊지 않고 ErrorFrame을 흘린 뒤 정상 종료한다.
@@ -16,6 +15,7 @@ import logging
 
 from wilson_orchestrator.adapters.llm_client import LlmClient
 from wilson_orchestrator.adapters.rag_client import RagClient
+from wilson_orchestrator.adapters.stt_client import SttClient
 from wilson_orchestrator.generated import dialogue_pb2
 from wilson_orchestrator.settings import Settings
 
@@ -34,19 +34,26 @@ class DialogueTurn:
 
 
 class DialoguePipeline:
-    def __init__(self, rag_client: RagClient, llm_client: LlmClient, settings: Settings) -> None:
+    def __init__(
+        self,
+        stt_client: SttClient,
+        rag_client: RagClient,
+        llm_client: LlmClient,
+        settings: Settings,
+    ) -> None:
+        self._stt = stt_client
         self._rag = rag_client
         self._llm = llm_client
         self._settings = settings
 
     async def converse(self, turn: DialogueTurn) -> AsyncIterator[dialogue_pb2.StreamResponse]:
-        # --- STT (Phase 1 임시 브리지: 오디오 바이트를 UTF-8 텍스트로 해석) ---
+        # --- STT (Azure Speech) ---
         try:
-            stt_text = turn.audio_payload.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            # 실제 오디오가 들어온 경우 — STT 미연결이라 아직 처리할 수 없다.
-            logger.warning(
-                "STT 미연결(Phase 1): 오디오 바이트를 텍스트로 해석 불가. trace_id=%s turn_id=%s",
+            stt_text = (await self._stt.transcribe(turn.audio_payload, turn.audio_format)).strip()
+        except Exception:
+            # STT 실패는 대화 응답을 못 만든다 → ErrorFrame(STT)로 우아하게 종료(grpc.md).
+            logger.exception(
+                "STT 전사 실패 — ErrorFrame(STT)로 종료. trace_id=%s turn_id=%s",
                 turn.trace_id,
                 turn.turn_id,
             )
