@@ -13,8 +13,13 @@ class Settings(BaseSettings):
     rag_server_target: str = "localhost:50052"
     llm_server_target: str = "localhost:50053"
 
-    # 대화 언어. 한국어 고정이나 확장 대비 env(LANGUAGE_CODE)로 노출.
+    # 대화 언어. 한국어 고정이나 확장 대비 env(LANGUAGE_CODE)로 노출. STT 언어로도 쓰인다.
     language_code: str = "ko-KR"
+
+    # Azure Speech STT. 실키는 env로만 주입 — 하드코딩·커밋·로그 금지(security.md).
+    # 리전은 한국(koreacentral) 고정 — PIPA 국외이전 회피(security.md).
+    azure_speech_key: str = ""  # env: AZURE_SPEECH_KEY (필수, 로컬 .env / 배포 K8s Secret)
+    azure_speech_region: str = "koreacentral"  # env: AZURE_SPEECH_REGION
 
     # LLM 시스템 프롬프트(윌슨 페르소나). 비판단·비교정 원칙(CLAUDE.md §1)을 반영한 초기값.
     # ASSUMPTION: 최소 페르소나 — 안전·임상(응급 템플릿 등) 확정 시 교체. 조정 가능.
