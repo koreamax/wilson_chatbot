@@ -8,26 +8,28 @@
 
 이 서버는 수신용 REST router를 만들지 않는다(헬스체크 제외, grpc.md).
 
-## 현재 범위 — Phase 2-A STT 입력 (#22)
+## 현재 범위 — Phase 2 음성 파이프라인 (STT #22 · TTS #24)
 
-입력은 **Azure Speech STT**로 연결됨. 출력(TTS/AudioChunk)은 아직 미연결(Phase 2-B).
+음성 왕복 루프 완성 — 입력·출력 모두 **Azure Speech**(동일 리소스·키·리전 재사용).
 
 ```
 BE → Converse(AudioRequest) → [Azure STT] → RAG BuildContext → LLM Generate(스트림)
-                            → StreamResponse: MetadataFrame → CompletionFrame
+                            → [Azure TTS(문장별)] → StreamResponse:
+                               MetadataFrame → AudioChunk(seq)… → CompletionFrame
 ```
 
-- **STT (Azure Speech)**: `AudioRequest.audio_payload`(bytes)를 Azure short-audio REST로 전사(async).
-  리전 `koreacentral` 고정(security.md 국외이전 회피). 원본 음성은 인메모리 처리(디스크 기록 안 함).
-  `audio_format`은 힌트로만 쓰고 **실제 바이트로 컨테이너 판별**(현재 WAV/OGG-OPUS 지원, m4a 등은 후속).
-  대화용 `stt_text`는 `DisplayText`, 인지지표(Phase 4)용 `Lexical`은 `format=detailed`로 함께 수신 가능.
+- **STT (Azure Speech)**: `audio_payload`를 short-audio REST로 전사(async). 리전 `koreacentral` 고정.
+  원본 음성 인메모리 처리(디스크 기록 안 함). `audio_format`은 힌트로만 쓰고 **실제 바이트로 컨테이너 판별**
+  (WAV/OGG-OPUS 지원, m4a 등은 후속). 대화용 `stt_text`=`DisplayText`, 인지지표용 `Lexical`은 `format=detailed`로 수신 가능.
 - **RAG 폴백**: `BuildContext` 실패는 대화를 끊지 않는다 — 빈 컨텍스트로 LLM을 진행한다(rag.md).
-- **출력**: 아직 TTS가 없어 `AudioChunk`를 흘리지 않는다. LLM 토큰 스트림은 내부적으로 소비·누적해
-  `CompletionFrame.full_llm_response_text`로 1회 전달한다. Phase 2-B에서 이 토큰을 TTS로 흘려 `AudioChunk`를 만든다.
-- **실패 처리**: gRPC status로 스트림을 끊지 않고 `ErrorFrame`(STT/LLM 단계)을 흘린 뒤 정상 종료한다(grpc.md).
+- **TTS (Azure Speech)**: LLM 응답을 **문장 단위로 순차 합성**해 `AudioChunk(data, sequence)`로 스트리밍한다.
+  전체 대기 후 일괄 전송하지 않는다(첫 음성 지연 단축). STT와 **동일 키·리전 재사용**(신규 자격증명 없음).
+  Google TTS는 한국 리전 미지원으로 배제(stt-tts.md/security.md). 오버랩(LLM↔TTS)은 후속 최적화.
+- **출력 프레임**: `CompletionFrame.full_llm_response_text`로 완성 텍스트를 1회 전달(대화 이력).
+- **실패 처리**: gRPC status로 스트림을 끊지 않고 `ErrorFrame`(STT/LLM/TTS 단계)을 흘린 뒤 정상 종료한다(grpc.md).
+  TTS 실패 시에도 완성 텍스트를 실어 보내고, 이미 보낸 청크가 있으면 `recoverable=True`.
 
-범위 밖(후속): TTS·AudioChunk 출력(Phase 2-B), 인지지표 Kafka publish(Phase 4),
-응급 키워드 가드레일(RAG 측 TBD).
+범위 밖(후속): 단계 간 오버랩, 인지지표 Kafka publish(Phase 4), 응급 키워드 가드레일(RAG 측 TBD).
 
 ## 환경 변수
 
@@ -38,8 +40,10 @@ BE → Converse(AudioRequest) → [Azure STT] → RAG BuildContext → LLM Gener
 | `LLM_SERVER_TARGET` | `localhost:50053` | LLM 유닛(②) gRPC 타깃. 클러스터는 `llm-server:50053` |
 | `LANGUAGE_CODE` | `ko-KR` | 대화 언어 (STT 언어로도 사용) |
 | `SYSTEM_PROMPT` | (윌슨 기본 페르소나) | LLM 시스템 프롬프트. 비판단·비교정 원칙 반영 |
-| `AZURE_SPEECH_KEY` | (없음) | **필수** Azure Speech 키. 로컬 `.env`, 배포 K8s Secret. 커밋·로그 금지 |
+| `AZURE_SPEECH_KEY` | (없음) | **필수** Azure Speech 키(STT·TTS 공용). 로컬 `.env`, 배포 K8s Secret. 커밋·로그 금지 |
 | `AZURE_SPEECH_REGION` | `koreacentral` | Azure Speech 리전. 한국 고정(PIPA) |
+| `TTS_VOICE` | `ko-KR-SunHiNeural` | Azure TTS ko-KR neural 음성 |
+| `TTS_OUTPUT_FORMAT` | `audio-24khz-48kbitrate-mono-mp3` | TTS 출력 코덱(앱 재생과 정합 필요) |
 
 ## 실행
 
@@ -75,6 +79,14 @@ $env:PYTHONPATH="services/orchestrator-server/src"
 python services/orchestrator-server/scripts/smoke_stt.py <오디오파일.wav>
 ```
 → `전사: ...` 와 `OK` 가 출력되면 STT 연동 성공.
+
+## 라이브 TTS 스모크 (Azure 키 필요 — STT와 동일 키)
+
+```powershell
+$env:PYTHONPATH="services/orchestrator-server/src"
+python services/orchestrator-server/scripts/smoke_tts.py out.mp3
+```
+→ `저장: out.mp3 (...bytes)` 와 `OK` 가 출력되면 TTS 연동 성공.
 
 > 실제 RAG+LLM 연동 라이브 확인은 두 유닛(+ ChromaDB, NVIDIA 키)을 띄운 뒤
 > `RAG_SERVER_TARGET`/`LLM_SERVER_TARGET`을 맞추고 위 `main`을 실행해 BE 클라이언트로 호출한다.
