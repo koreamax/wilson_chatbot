@@ -38,8 +38,14 @@ class _FakeLlm:
             yield piece
 
 
+class _FakeTts:
+    # TTS 대체 — 문장 텍스트를 그대로 바이트로 돌려 AudioChunk 배선만 검증(실제 Azure 호출 없음).
+    async def synthesize(self, text: str) -> bytes:
+        return text.encode("utf-8")
+
+
 async def main() -> None:
-    pipeline = DialoguePipeline(_FakeStt(), _FakeRag(), _FakeLlm(), Settings())
+    pipeline = DialoguePipeline(_FakeStt(), _FakeRag(), _FakeLlm(), _FakeTts(), Settings())
 
     server = grpc.aio.server()
     dialogue_pb2_grpc.add_DialogueServiceServicer_to_server(DialogueServicer(pipeline), server)
@@ -54,7 +60,7 @@ async def main() -> None:
             target_user_id="user_1",
             session_id="s-1",
             turn_id="turn-1",
-            audio_format="text",  # Phase 1 브리지: 오디오 자리에 텍스트
+            audio_format="text",  # 스모크 브리지: _FakeStt이 오디오 자리 텍스트를 그대로 전사
             language_code="ko-KR",
         )
         frames = [frame async for frame in stub.Converse(request)]
@@ -62,12 +68,17 @@ async def main() -> None:
     await server.stop(None)
 
     kinds = [frame.WhichOneof("payload") for frame in frames]
+    audio_frames = [f for f in frames if f.WhichOneof("payload") == "audio_chunk"]
     print("frames :", kinds)
     print("stt    :", frames[0].metadata.stt_text)
+    print("chunks :", [f.audio_chunk.sequence for f in audio_frames])
     print("answer :", frames[-1].completion.full_llm_response_text)
 
     assert kinds[0] == "metadata", kinds
     assert kinds[-1] == "completion", kinds
+    assert len(audio_frames) >= 1, "AudioChunk 프레임이 없습니다"
+    # 순번은 1..N으로 증가해야 한다.
+    assert [f.audio_chunk.sequence for f in audio_frames] == list(range(1, len(audio_frames) + 1))
     assert frames[0].metadata.stt_text == "약 언제 먹어요?"
     assert frames[-1].completion.full_llm_response_text == _EXPECTED_ANSWER
     print("OK")

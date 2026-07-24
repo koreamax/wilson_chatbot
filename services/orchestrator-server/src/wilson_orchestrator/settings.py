@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     azure_speech_key: str = ""  # env: AZURE_SPEECH_KEY (필수, 로컬 .env / 배포 K8s Secret)
     azure_speech_region: str = "koreacentral"  # env: AZURE_SPEECH_REGION
 
+    # Azure TTS — STT와 동일 리소스(key·region)를 재사용한다. 신규 자격증명 없음.
+    # Google TTS는 한국 리전 미지원으로 배제됨(stt-tts.md/security.md 참조).
+    tts_voice: str = "ko-KR-SunHiNeural"  # env: TTS_VOICE (ko-KR neural)
+    tts_output_format: str = "audio-24khz-48kbitrate-mono-mp3"  # env: TTS_OUTPUT_FORMAT
+
     # LLM 시스템 프롬프트(윌슨 페르소나). 비판단·비교정 원칙(CLAUDE.md §1)을 반영한 초기값.
     # ASSUMPTION: 최소 페르소나 — 안전·임상(응급 템플릿 등) 확정 시 교체. 조정 가능.
     system_prompt: str = (
